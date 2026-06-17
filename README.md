@@ -145,27 +145,9 @@ This project uses:
 
 ---
 
-#  Project Structure
-
-Olist-Ecommerce-Analysis/
-
-│
-├── SQL/
-│ └── olist_analysis.sql
-│
-├── Documentation/
-│ └── Olist_Project_Report.pdf
-│
-├── Dashboard/
-│ └── Olist_Dashboard.pbix
-│
-└── README.md
-
----
-
 #  Author
 
-**Akriti**
+**Akriti Srivastava**
 
 Aspiring Data Analyst
 
