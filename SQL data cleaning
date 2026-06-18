@@ -1,0 +1,297 @@
+-- Creating Database --
+
+CREATE DATABASE olist_project;
+
+USE olist_project; 
+
+SHOW VARIABLES LIKE 'secure_file_priv';
+
+-- Update file path according to local environment
+
+LOAD DATA INFILE 'path/to/orders.csv'
+INTO TABLE orders
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+-- 1. DATA CLEANING-- 
+
+-- 1.1: Orders Table --
+
+-- Creating new column to store date datatype--
+
+DESCRIBE orders;
+
+ALTER TABLE orders 
+ADD purchase_dt DATETIME,
+ADD approved_dt DATETIME,
+ADD carrier_dt DATETIME,
+ADD delivered_dt DATETIME,
+ADD est_delivery_dt DATETIME;
+
+
+
+UPDATE orders
+SET purchase_dt = STR_TO_DATE(order_purchase_timestamp, '%m/%d/%Y %H:%i');
+
+UPDATE orders
+SET approved_dt = STR_TO_DATE(order_approved_at, '%m/%d/%Y %H:%i')
+WHERE order_approved_at != '';
+
+UPDATE orders
+SET carrier_dt = STR_TO_DATE(order_delivered_carrier_date, '%m/%d/%Y %H:%i')
+WHERE order_delivered_carrier_date != '';
+
+UPDATE orders
+SET delivered_dt = STR_TO_DATE(order_delivered_customer_date, '%m/%d/%Y %H:%i')
+WHERE order_delivered_customer_date != '';
+
+UPDATE orders
+SET est_delivery_dt = STR_TO_DATE(order_estimated_delivery_date, '%m/%d/%Y %H:%i')
+WHERE order_estimated_delivery_date != '';
+
+ALTER TABLE orders
+DROP COLUMN order_purchase_timestamp,
+DROP COLUMN order_approved_at,
+DROP COLUMN order_delivered_carrier_date,
+DROP COLUMN order_delivered_customer_date,
+DROP COLUMN order_estimated_delivery_date;
+
+-- CREATING A BACKUP TABLE--
+
+CREATE TABLE orders_backup AS 
+SELECT * FROM orders;
+
+-- Removing Duplicates-- 
+
+Describe orders;
+
+WITH duplicate_cte as 
+(
+SELECT *,
+ROW_NUMBER() OVER(PARTITION BY order_id, customer_id, order_status, purchase_dt,
+approved_dt, carrier_dt, delivered_dt, est_delivery_dt) as row_num
+FROM orders
+)
+DELETE 
+FROM duplicate_cte
+WHERE row_num >1;
+
+Select * from order_payments;
+
+CREATE TABLE `orders2` (
+  `order_id` text,
+  `customer_id` text,
+  `order_status` text,
+  `purchase_dt` datetime DEFAULT NULL,
+  `approved_dt` datetime DEFAULT NULL,
+  `carrier_dt` datetime DEFAULT NULL,
+  `delivered_dt` datetime DEFAULT NULL,
+  `est_delivery_dt` datetime DEFAULT NULL,
+  `row_num` INT 
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Exact Duplicates-- 
+
+INSERT INTO orders2
+SELECT *,
+ROW_NUMBER() OVER(PARTITION BY order_id,customer_id, order_status, purchase_dt, approved_dt, carrier_dt, delivered_dt,est_delivery_dt ) 
+as row_num
+FROM orders;
+
+DELETE
+FROM orders2
+WHERE row_num >1;
+
+-- Logical Duplicates--
+
+SELECT order_id, COUNT(*) 
+FROM orders2
+GROUP BY order_id
+HAVING COUNT(*) > 1;
+
+SELECT 
+COUNT(*) AS total_orders,
+COUNT(DISTINCT order_id) AS unique_orders
+FROM orders2;
+
+DROP TABLE orders;
+RENAME TABLE orders2 TO orders;
+
+SELECT COUNT(*) FROM orders;
+
+-- FINAL CHECK-- 
+
+-- Null Check--
+
+SELECT 
+SUM(purchase_dt IS NULL) AS purchase_nulls,
+SUM(approved_dt IS NULL) AS approved_nulls,
+SUM(carrier_dt IS NULL) AS carrier_nulls,
+SUM(delivered_dt IS NULL) AS delivered_nulls,
+SUM(est_delivery_dt IS NULL) AS est_delivery_nulls
+FROM orders;
+
+SELECT order_status, COUNT(*) 
+FROM orders
+WHERE delivered_dt IS NULL
+GROUP BY order_status;
+
+SELECT count(*) FROM orders 
+WHERE delivered_dt IS NULL;
+
+
+-- CREATING CUSTOMERS TABLE --
+
+
+SHOW VARIABLES LIKE 'secure_file_priv';
+
+LOAD DATA INFILE 'path/to/orders.csv'
+INTO TABLE customers
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+CREATE TABLE `customers_new` (
+  `customer_id` text,
+  `customer_unique_id` text,
+  `customer_zip_code_prefix` text,
+  `customer_city` text,
+  `customer_state` text,
+  `row_num` INT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+INSERT INTO customers_new
+SELECT *,
+ROW_NUMBER() OVER(PARTITION BY customer_id, customer_unique_id, customer_zip_code_prefix, customer_city,customer_state ) 
+as row_num
+FROM customers;
+
+SELECT * FROM customers_new
+WHERE row_num>1
+LIMIT 5;
+
+SELECT customer_uid, COUNT(*) 
+FROM customers_new
+GROUP BY customer_uid
+HAVING COUNT(*) > 1;
+
+SELECT customer_id, COUNT(*) FROM customers_new
+GROUP BY customer_id
+HAVING COUNT(*)>1;
+
+SELECT COUNT(DISTINCT customer_id) as total_orders,
+COUNT(DISTINCT customer_uid) as customer_unique_orders
+FROM customers_new;
+
+SELECT 
+SUM(customer_id IS NULL),
+SUM(customer_uid IS NULL),
+SUM(city IS NULL),
+SUM(state IS NULL),
+SUM(zipcode IS NULL)
+FROM customers_new;
+
+ALTER TABLE customers_new
+DROP COLUMN row_num;
+
+-- CREATING ORDER ITEMS TABLE--
+
+CREATE TABLE order_items (
+    order_id VARCHAR(50),
+    order_item_id INT,
+    product_id VARCHAR(50),
+    seller_id VARCHAR(50),
+    shipping_limit_date TEXT,
+    price TEXT,
+    freight_value TEXT
+);
+
+LOAD DATA INFILE 'path/to/orders.csv'
+INTO TABLE order_items
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+SELECT * FROM order_items;
+
+CREATE TABLE order_items_backup AS SELECT * FROM order_items; 
+
+ALTER TABLE order_items
+ADD shipping_dt DATETIME;
+
+UPDATE order_items
+SET shipping_dt= STR_TO_DATE(shipping_limit_date,  '%m/%d/%Y %H:%i');
+
+ALTER TABLE order_items
+ADD price_num DECIMAL(10,2),
+ADD freight_num DECIMAL(10,2);
+
+UPDATE order_items
+SET 
+price_num = CAST(price AS DECIMAL(10,2)),
+freight_num = CAST(freight_value AS DECIMAL(10,2));
+
+ALTER TABLE order_items
+DROP COLUMN shipping_limit_date,
+DROP COLUMN price,
+DROP COLUMN freight_value;
+
+WITH duplicate_cte as(
+SELECT *,
+ROW_NUMBER() OVER(PARTITION BY order_id, order_item_id,product_id, seller_id, shipping_dt, price, freight_value) as row_num
+FROM order_items
+)
+SELECT * from duplicate_cte
+WHERE row_num>1;
+
+SELECT order_id, order_item_id, COUNT(*)
+FROM order_items
+GROUP BY order_id, order_item_id
+HAVING COUNT(*) >1;
+
+SELECT 
+COUNT(*) AS total_rows,
+COUNT(DISTINCT order_id, order_item_id) AS unique_rows
+FROM order_items;
+
+-- CREATING ORDER PAYMENTS TABLE--
+
+CREATE TABLE order_payments(
+order_id VARCHAR(50),
+payment_sequential INT,
+payment_type VARCHAR(50),
+payment_installments INT,
+Payment_value DECIMAL(10,2)
+);
+
+LOAD DATA INFILE 'path/to/orders.csv'
+INTO TABLE order_payments
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+
+
+SELECT 
+SUM(order_id IS NULL),
+SUM(payment_sequential IS NULL),
+SUM(payment_type IS NULL),
+SUM(payment_installments IS NULL),
+SUM(payment_value IS NULL)
+FROM order_payments;
+
+SELECT order_id, payment_sequential, COUNT(*) 
+FROM order_payments
+GROUP BY order_id, payment_sequential
+HAVING COUNT(*)>1;
+
+SELECT order_id, COUNT(*) AS payment_count
+FROM order_payments
+GROUP BY order_id
+HAVING COUNT(*) > 1
+LIMIT 10;
